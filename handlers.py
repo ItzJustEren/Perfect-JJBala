@@ -1,20 +1,19 @@
-# ============================================
-# فایل 5: handlers.py
-# ============================================
-
 import asyncio
 import random
 from datetime import datetime
-from aiogram import types, F, Bot
+from aiogram import types, F, Bot, Dispatcher
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message, ReactionTypeEmoji
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from database import *
 from utils import *
 import os
 
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
 
 class SetPersonality(StatesGroup):
