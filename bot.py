@@ -1,12 +1,7 @@
-# ============================================
-# فایل 6: bot.py
-# ============================================
-
 import asyncio
 import os
 from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import Bot
 from database import init_db
 from handlers import dp, auto_send_ideas
 
