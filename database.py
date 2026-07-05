@@ -7,7 +7,7 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS chat_settings (
             chat_id TEXT PRIMARY KEY,
-            personality TEXT DEFAULT 'شما یک دستیار مفید و رسمی هستید.',
+            personality TEXT DEFAULT 'تو یه رفیق شوخ و خودمونی هستی.',
             search_mode INTEGER DEFAULT 0
         )
     """)
@@ -15,7 +15,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS user_settings (
             chat_id TEXT,
             user_id TEXT,
-            personality TEXT DEFAULT 'شما یک دستیار مفید و رسمی هستید.',
+            personality TEXT DEFAULT 'تو یه رفیق شوخ و خودمونی هستی.',
             search_mode INTEGER DEFAULT 0,
             PRIMARY KEY (chat_id, user_id)
         )
@@ -71,7 +71,7 @@ def get_personality(chat_id: str, user_id: str = None) -> str:
     cursor.execute("SELECT personality FROM chat_settings WHERE chat_id = ?", (chat_id,))
     row = cursor.fetchone()
     conn.close()
-    return row[0] if row else "شما یک دستیار مفید و رسمی هستید."
+    return row[0] if row else "تو یه رفیق شوخ و خودمونی هستی."
 
 def set_user_personality(chat_id: str, user_id: str, personality: str):
     conn = get_connection()
