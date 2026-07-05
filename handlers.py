@@ -1,3 +1,7 @@
+# ============================================
+# فایل 5: handlers.py
+# ============================================
+
 import asyncio
 import random
 from datetime import datetime
@@ -21,9 +25,9 @@ class RolePlay(StatesGroup):
 
 class AskQuestion(StatesGroup):
     waiting_for_question = State()
+    waiting_for_video_prompt = State()
 
 def build_main_menu():
-    """منوی اصلی با دو دکمه Settings و Panel"""
     buttons = [
         [InlineKeyboardButton(text="⚙️ Settings", callback_data="settings_menu")],
         [InlineKeyboardButton(text="📊 Panel", callback_data="panel_menu")]
@@ -31,7 +35,6 @@ def build_main_menu():
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def build_settings_keyboard():
-    """منوی تنظیمات با ۴ دکمه اصلی"""
     buttons = [
         [InlineKeyboardButton(text="Change Personality", callback_data="change_personality")],
         [InlineKeyboardButton(text="Developers", callback_data="developers")],
@@ -42,10 +45,10 @@ def build_settings_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def build_panel_keyboard():
-    """منوی پنل با دکمه‌های مدیریتی"""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Search Mode: ON/OFF", callback_data="toggle_search"))
     builder.row(InlineKeyboardButton(text="Generate Image", callback_data="generate_image"))
+    builder.row(InlineKeyboardButton(text="🎬 Generate Video", callback_data="generate_video"))
     builder.row(InlineKeyboardButton(text="Role Play", callback_data="role_play"))
     builder.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_main"))
     return builder.as_markup()
@@ -65,11 +68,11 @@ def build_personality_keyboard():
 
 def get_personality_prompt(key: str) -> str:
     prompts = {
-        "kind_shy": "شما یک دستیار مهربان و خجالتی هستید. آرام و با ادب صحبت کنید، همیشه متواضع باشید و با محبت پاسخ دهید. از کلمات محبت‌آمیز استفاده کنید.",
-        "clown_joker": "شما یک دلقک و شوخ‌طبع هستید. همیشه جوک بسازید، بامزه و بازیگوش باشید و لحن شاد داشته باشید. از شوخی‌های ساده و دوستانه استفاده کنید.",
-        "sigma_troller": "شما یک سیگما و تrollerر هستید. خونسرد، با اعتماد به نفس، گاهی طعنه‌آمیز و شوخ‌گونه پاسخ دهید. اعتماد به نفس بالایی دارید.",
-        "ai_assistant": "شما یک دستیار هوش مصنوعی حرفه‌ای هستید. دقیق، رسمی و مفید پاسخ دهید و اطلاعات را به صورت ساختاری ارائه کنید. کاملاً حرفه‌ای باشید.",
-        "normal_human": "شما یک انسان عادی هستید. مانند یک فرد معمولی، خودمانی و دوستانه صحبت کنید و از اصطلاحات روزمره استفاده کنید. طبیعی و ساده باشید."
+        "kind_shy": "شما یک دستیار مهربان و خجالتی هستید. آرام و با ادب صحبت کنید، همیشه متواضع باشید و با محبت پاسخ دهید.",
+        "clown_joker": "شما یک دلقک و شوخ‌طبع هستید. همیشه جوک بسازید، بامزه و بازیگوش باشید و لحن شاد داشته باشید.",
+        "sigma_troller": "شما یک سیگما و تrollerر هستید. خونسرد، با اعتماد به نفس، گاهی طعنه‌آمیز و شوخ‌گونه پاسخ دهید.",
+        "ai_assistant": "شما یک دستیار هوش مصنوعی حرفه‌ای هستید. دقیق، رسمی و مفید پاسخ دهید.",
+        "normal_human": "شما یک انسان عادی هستید. مانند یک فرد معمولی، خودمانی و دوستانه صحبت کنید."
     }
     return prompts.get(key, "شما یک دستیار مفید و رسمی هستید.")
 
@@ -84,7 +87,8 @@ def build_ask_about_text():
         "- تغییر شخصیت و لحن\n"
         "- جستجوی آنلاین برای اطلاعات دقیق\n"
         "- تحلیل تصاویر\n"
-        "- ساخت تصویر با هوش مصنوعی (با کیفیت بالا)\n"
+        "- ساخت تصویر با هوش مصنوعی (کیفیت بالا)\n"
+        "- ساخت ویدیو با هوش مصنوعی\n"
         "- حفظ حافظه بلندمدت از مکالمات شما\n"
         "- تشخیص احساسات و پاسخ مناسب\n"
         "- بازی رول‌پلی انیمه\n"
@@ -290,7 +294,6 @@ async def toggle_search(callback: CallbackQuery):
     status_text = "فعال" if status else "غیرفعال"
     await callback.answer(f"حالت جستجو {status_text} شد.")
     
-    # بروزرسانی منوی پنل
     await callback.message.edit_text(
         f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {'✅ فعال' if status else '❌ غیرفعال'}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
         reply_markup=build_panel_keyboard()
@@ -298,8 +301,14 @@ async def toggle_search(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "generate_image")
 async def generate_image_callback(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("لطفاً توضیحات تصویر مورد نظر خود را بنویسید:")
+    await callback.message.edit_text("🖼️ توضیحات تصویر مورد نظر خود را بنویسید:")
     await state.set_state(AskQuestion.waiting_for_question)
+    await callback.answer()
+
+@dp.callback_query(F.data == "generate_video")
+async def generate_video_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("🎬 توضیحات ویدیو مورد نظر خود را بنویسید (مثلاً: یک گربه در حال دویدن در پارک):")
+    await state.set_state(AskQuestion.waiting_for_video_prompt)
     await callback.answer()
 
 @dp.callback_query(F.data == "role_play")
@@ -313,7 +322,6 @@ async def start_role_play(message: Message, state: FSMContext):
     content = message.text
     chat_id = str(message.chat.id)
     user_id = str(message.from_user.id)
-    personality = get_personality(chat_id, user_id if message.chat.type == "private" else None)
     
     role_prompt = f"شما در حال رول‌پلی بر اساس {content} هستید. کاملاً وارد نقش شوید و مانند شخصیت‌های آن رفتار کنید. لحن و دیالوگ‌هایتان متناسب با فضا باشد."
     set_user_personality(chat_id, user_id, role_prompt)
@@ -324,12 +332,23 @@ async def start_role_play(message: Message, state: FSMContext):
 @dp.message(AskQuestion.waiting_for_question)
 async def generate_image_handler(message: Message, state: FSMContext):
     prompt = message.text
-    await message.reply("در حال ساخت تصویر... ممکن است چند ثانیه طول بکشد.")
+    await message.reply("🖼️ در حال ساخت تصویر... ممکن است چند ثانیه طول بکشد.")
     image_url = await generate_image(prompt)
     if image_url:
         await message.reply_photo(image_url, caption=f"تصویر ساخته شده بر اساس: {prompt}")
     else:
         await message.reply("متاسفانه خطایی در ساخت تصویر رخ داد. لطفاً دوباره تلاش کنید.")
+    await state.clear()
+
+@dp.message(AskQuestion.waiting_for_video_prompt)
+async def generate_video_handler(message: Message, state: FSMContext):
+    prompt = message.text
+    await message.reply("🎬 در حال ساخت ویدیو... ممکن است چند ثانیه طول بکشد.")
+    video_url = await generate_video(prompt, duration=5)
+    if video_url:
+        await message.reply_video(video_url, caption=f"ویدیو ساخته شده بر اساس: {prompt}")
+    else:
+        await message.reply("متاسفانه خطایی در ساخت ویدیو رخ داد. لطفاً دوباره تلاش کنید.")
     await state.clear()
 
 @dp.message(F.photo)
