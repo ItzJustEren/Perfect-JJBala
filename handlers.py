@@ -1,8 +1,7 @@
 import asyncio
 import random
-from datetime import datetime
 from aiogram import types, F, Bot, Dispatcher
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message, ReactionTypeEmoji
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, ReactionTypeEmoji
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -15,6 +14,7 @@ import os
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
+BOT_USERNAME = os.getenv("BOT_USERNAME")
 
 class SetPersonality(StatesGroup):
     waiting_for_prompt = State()
@@ -26,57 +26,222 @@ class AskQuestion(StatesGroup):
     waiting_for_question = State()
     waiting_for_video_prompt = State()
 
-def build_main_menu():
-    buttons = [
-        [InlineKeyboardButton(text="⚙️ Settings", callback_data="settings_menu")],
-        [InlineKeyboardButton(text="📊 Panel", callback_data="panel_menu")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+# ====== Keyboards ======
+def main_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Settings", callback_data="settings")],
+        [InlineKeyboardButton(text="📊 Panel", callback_data="panel")]
+    ])
 
-def build_settings_keyboard():
-    buttons = [
+def settings_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Change Personality", callback_data="change_personality")],
         [InlineKeyboardButton(text="Developers", callback_data="developers")],
         [InlineKeyboardButton(text="Add to group", callback_data="add_to_group")],
-        [InlineKeyboardButton(text="Ask about me and my features", callback_data="ask_about")],
+        [InlineKeyboardButton(text="Ask about me", callback_data="ask_about")],
         [InlineKeyboardButton(text="🔙 Back", callback_data="back_main")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    ])
 
-def build_panel_keyboard():
+def panel_menu():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Search Mode: ON/OFF", callback_data="toggle_search"))
-    builder.row(InlineKeyboardButton(text="Generate Image", callback_data="generate_image"))
+    builder.row(InlineKeyboardButton(text="🖼️ Generate Image", callback_data="generate_image"))
     builder.row(InlineKeyboardButton(text="🎬 Generate Video", callback_data="generate_video"))
     builder.row(InlineKeyboardButton(text="Role Play", callback_data="role_play"))
     builder.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_main"))
     return builder.as_markup()
 
-def build_personality_keyboard():
-    personalities = [
-        ("Kind and shy", "kind_shy"),
-        ("Clown and joker", "clown_joker"),
-        ("sigma and troller", "sigma_troller"),
-        ("Ai assistant", "ai_assistant"),
-        ("Normal Human", "normal_human")
+def personality_menu():
+    buttons = [
+        [InlineKeyboardButton(text="Kind and shy", callback_data="set_kind_shy")],
+        [InlineKeyboardButton(text="Clown and joker", callback_data="set_clown_joker")],
+        [InlineKeyboardButton(text="Sigma and troller", callback_data="set_sigma_troller")],
+        [InlineKeyboardButton(text="Ai assistant", callback_data="set_ai_assistant")],
+        [InlineKeyboardButton(text="Normal Human", callback_data="set_normal_human")],
+        [InlineKeyboardButton(text="✨ Create your own", callback_data="create_own")],
+        [InlineKeyboardButton(text="🔙 Back", callback_data="settings")]
     ]
-    buttons = [[InlineKeyboardButton(text=name, callback_data=f"set_personality_{key}")] for name, key in personalities]
-    buttons.append([InlineKeyboardButton(text="Create your own personality", callback_data="create_own")])
-    buttons.append([InlineKeyboardButton(text="🔙 Back", callback_data="settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_personality_prompt(key: str) -> str:
-    prompts = {
-        "kind_shy": "شما یک دستیار مهربان و خجالتی هستید. آرام و با ادب صحبت کنید، همیشه متواضع باشید و با محبت پاسخ دهید.",
-        "clown_joker": "شما یک دلقک و شوخ‌طبع هستید. همیشه جوک بسازید، بامزه و بازیگوش باشید و لحن شاد داشته باشید.",
-        "sigma_troller": "شما یک سیگما و تrollerر هستید. خونسرد، با اعتماد به نفس، گاهی طعنه‌آمیز و شوخ‌گونه پاسخ دهید.",
-        "ai_assistant": "شما یک دستیار هوش مصنوعی حرفه‌ای هستید. دقیق، رسمی و مفید پاسخ دهید.",
-        "normal_human": "شما یک انسان عادی هستید. مانند یک فرد معمولی، خودمانی و دوستانه صحبت کنید."
-    }
-    return prompts.get(key, "شما یک دستیار مفید و رسمی هستید.")
+personality_prompts = {
+    "kind_shy": "شما یک دستیار مهربان و خجالتی هستید. آرام و با ادب صحبت کنید. همیشه متواضع و محبت‌آمیز باشید.",
+    "clown_joker": "شما یک دلقک و شوخ‌طبع هستید. همیشه جوک بسازید، بامزه و بازیگوش باشید.",
+    "sigma_troller": "شما یک سیگما و تrollر هستید. خونسرد، با اعتماد به نفس، گاهی طعنه‌آمیز و شوخ‌گونه پاسخ دهید.",
+    "ai_assistant": "شما یک دستیار هوش مصنوعی حرفه‌ای هستید. دقیق، رسمی و مفید پاسخ دهید.",
+    "normal_human": "شما یک انسان عادی هستید. خودمانی و دوستانه صحبت کنید، از اصطلاحات روزمره استفاده کنید."
+}
 
-def build_ask_about_text():
-    return (
+# ====== Helper: apply_reaction based on text content ======
+async def apply_reaction(message: Message, text: str, mood: str = None):
+    try:
+        emoji = get_reaction_emoji(text, mood)
+        await bot.set_message_reaction(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)]
+        )
+    except Exception:
+        pass
+
+# ====== Helper: call Groq with context ======
+async def call_groq_with_context(chat_id: str, user_id: str, text: str, is_private: bool, search_result: str = None):
+    personality = get_personality(chat_id, user_id if is_private else None)
+    history = get_history(chat_id)
+    memories = get_memories(chat_id, user_id)
+    mood = get_mood(chat_id, user_id)
+    
+    system = personality
+    if mood and mood != "خنثی":
+        system += f" کاربر در حال حاضر احساس {mood} دارد. سعی کنید متناسب با این احساس پاسخ دهید."
+    if search_result:
+        system += f"\n\nاطلاعات جستجو: {search_result}"
+    if memories:
+        memory_text = "\n".join(memories)
+        system += f"\n\nاطلاعات ذخیره شده از کاربر: {memory_text}"
+    
+    messages = [{"role": "system", "content": system + " همیشه اگر کاربر درباره سازنده سوال کرد، بگویید سازنده شما تیم تاکا (@TaakaaOrg) است."}]
+    for turn in history[-15:]:
+        messages.append({"role": "user", "content": turn["user"]})
+        messages.append({"role": "assistant", "content": turn["bot"]})
+    messages.append({"role": "user", "content": text})
+    
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.8,
+            max_tokens=1024
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        response = await agnes_chat(text, system)
+        if response:
+            return response
+        return f"متاسفانه خطایی رخ داده: {str(e)}"
+
+# ====== Helper: thinking emoji only (no text) ======
+async def show_thinking_and_reply(message: Message, response: str, personality: str):
+    emoji = get_thinking_emoji(personality)
+    thinking_msg = await message.reply(emoji)
+    await asyncio.sleep(1)
+    await thinking_msg.delete()
+    
+    if len(response) > 4096:
+        parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
+        for part in parts:
+            await message.reply(part)
+    else:
+        await message.reply(response)
+
+# ====== Handlers ======
+@dp.message(Command("start"))
+async def start_command(message: Message):
+    if message.chat.type in ["group", "supergroup"]:
+        add_group(str(message.chat.id))
+        await message.reply(
+            "hey im jojobala and i Developed by Taakaa Team now im your ai assistant and i try my best to help you, you can change my settings with /Panel code in chat and inline button gonna open\nTnx for adding me in group"
+        )
+        return
+    await message.reply(
+        "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
+        reply_markup=main_menu()
+    )
+
+@dp.message(Command("settings"))
+async def settings_command(message: Message):
+    # Allow in groups as well
+    await message.reply("🔧 تنظیمات:", reply_markup=settings_menu())
+
+@dp.message(Command("panel"))
+async def panel_command(message: Message):
+    # Allow in groups as well
+    chat_id = str(message.chat.id)
+    user_id = str(message.from_user.id)
+    search_mode = get_search_mode(chat_id, user_id)
+    status = "✅ فعال" if search_mode else "❌ غیرفعال"
+    await message.reply(f"📊 پنل مدیریت\nوضعیت جستجو: {status}", reply_markup=panel_menu())
+
+# ====== Callbacks ======
+@dp.callback_query(F.data == "settings")
+async def settings_callback(callback):
+    await callback.message.edit_text("🔧 تنظیمات:", reply_markup=settings_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "panel")
+async def panel_callback(callback):
+    chat_id = str(callback.message.chat.id)
+    user_id = str(callback.from_user.id)
+    search_mode = get_search_mode(chat_id, user_id)
+    status = "✅ فعال" if search_mode else "❌ غیرفعال"
+    await callback.message.edit_text(f"📊 پنل مدیریت\nوضعیت جستجو: {status}", reply_markup=panel_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_main")
+async def back_main_callback(callback):
+    await callback.message.edit_text(
+        "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
+        reply_markup=main_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "change_personality")
+async def change_personality_callback(callback):
+    if callback.message.chat.type != "private":
+        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
+        return
+    await callback.message.edit_text("انتخاب شخصیت:", reply_markup=personality_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("set_"))
+async def set_personality_callback(callback):
+    if callback.message.chat.type != "private":
+        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
+        return
+    key = callback.data[4:]
+    if key in personality_prompts:
+        chat_id = str(callback.message.chat.id)
+        user_id = str(callback.from_user.id)
+        set_user_personality(chat_id, user_id, personality_prompts[key])
+        await callback.message.edit_text(f"شخصیت به '{key.replace('_', ' ')}' تغییر کرد.", reply_markup=settings_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "create_own")
+async def create_own_callback(callback, state: FSMContext):
+    if callback.message.chat.type != "private":
+        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
+        return
+    await callback.message.edit_text("Ok give me a prompt to set my behave and my personality e.g: You are Tom holland in spiderman movies and you have to talk and behave like him")
+    await state.set_state(SetPersonality.waiting_for_prompt)
+    await callback.answer()
+
+@dp.message(SetPersonality.waiting_for_prompt)
+async def receive_own_prompt(message: Message, state: FSMContext):
+    chat_id = str(message.chat.id)
+    user_id = str(message.from_user.id)
+    set_user_personality(chat_id, user_id, message.text)
+    await message.reply("شخصیت سفارشی شما با موفقیت ثبت شد.", reply_markup=settings_menu())
+    await state.clear()
+
+@dp.callback_query(F.data == "developers")
+async def developers_callback(callback):
+    await callback.message.edit_text(
+        "توسعه‌دهنده: تیم تاکا\nکانال تلگرام: @TaaKaaOrg\n\nما یک تیم حرفه‌ای هستیم و به ساختن ربات‌های هوشمند علاقه داریم.",
+        reply_markup=settings_menu()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "add_to_group")
+async def add_to_group_callback(callback):
+    url = f"https://t.me/{BOT_USERNAME}?startgroup=start"
+    await callback.message.edit_text(
+        "برای افزودن ربات به گروه، روی لینک زیر کلیک کنید:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Add to group", url=url)]])
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "ask_about")
+async def ask_about_callback(callback):
+    await callback.message.edit_text(
         "سلام من جوجوبلا هستم، یک ربات هوش مصنوعی که توسط تیم تاکا ساخته شده. "
         "من میتونم به سوالات شما پاسخ بدم، با شما گفتگو کنم، عکس‌ها رو تحلیل کنم و حتی شخصیت خودم رو با توجه به سلیقه شما تنظیم کنم. "
         "میتونید از دکمه Change Personality برای تغییر لحن و رفتار من استفاده کنید. "
@@ -91,227 +256,67 @@ def build_ask_about_text():
         "- حفظ حافظه بلندمدت از مکالمات شما\n"
         "- تشخیص احساسات و پاسخ مناسب\n"
         "- بازی رول‌پلی انیمه\n"
-        "- ارسال ایده‌های خودکار در گروه"
-    )
-
-async def call_groq_with_context(chat_id: str, user_id: str, user_text: str, is_private: bool, search_results: str = None) -> str:
-    personality = get_personality(chat_id, user_id if is_private else None)
-    history = get_history(chat_id)
-    memories = get_memories(chat_id, user_id)
-    mood = get_mood(chat_id, user_id)
-    
-    messages = []
-    system_prompt = personality
-    if mood:
-        system_prompt += f" کاربر در حال حاضر احساس {mood} دارد. سعی کنید متناسب با این احساس پاسخ دهید."
-    if search_results:
-        system_prompt += f"\n\nنتایج جستجو: {search_results}"
-    if memories:
-        memory_text = "\n".join(memories)
-        system_prompt += f"\n\nاطلاعات ذخیره شده از کاربر: {memory_text}"
-    
-    messages.append({"role": "system", "content": system_prompt + " همیشه اگر کاربر درباره سازنده سوال کرد، بگویید سازنده شما تیم تاکا (@TaakaaOrg) است."})
-    
-    for turn in history[-15:]:
-        messages.append({"role": "user", "content": turn["user"]})
-        messages.append({"role": "assistant", "content": turn["bot"]})
-    
-    messages.append({"role": "user", "content": user_text})
-    
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=messages,
-            temperature=0.8,
-            max_tokens=1024
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"متاسفانه خطایی رخ داده: {str(e)}"
-
-async def handle_message_with_thinking(message: Message, response: str, personality: str):
-    thinking_emoji = get_thinking_emoji(personality)
-    thinking_msg = await message.reply(f"{thinking_emoji} درحال فکر کردن...")
-    await asyncio.sleep(1)
-    await thinking_msg.delete()
-    await message.reply(response)
-
-async def apply_reaction(message: Message, mood: str):
-    try:
-        emoji = get_mood_emoji(mood)
-        await bot.set_message_reaction(
-            chat_id=message.chat.id,
-            message_id=message.message_id,
-            reaction=[ReactionTypeEmoji(emoji=emoji)]
-        )
-    except Exception:
-        pass
-
-@dp.message(Command("start"))
-async def start_command(message: Message):
-    if message.chat.type in ["group", "supergroup"]:
-        add_group(str(message.chat.id))
-        await message.reply(
-            "hey im jojobala and i Developed by Taakaa Team now im your ai assistant and i try my best to help you, you can change my settings with /Panel code in chat and inline button gonna open\nTnx for adding me in group"
-        )
-        return
-    await message.reply(
-        "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
-        reply_markup=build_main_menu()
-    )
-
-@dp.message(Command("settings"))
-async def settings_command(message: Message):
-    if message.chat.type != "private":
-        await message.reply("این دستور فقط در پیوی قابل استفاده است.")
-        return
-    await message.reply(
-        "🔧 **تنظیمات جوجوبلا**\n\nاز دکمه‌های زیر برای تغییر تنظیمات استفاده کنید:",
-        reply_markup=build_settings_keyboard()
-    )
-
-@dp.message(Command("panel"))
-async def panel_command(message: Message):
-    if message.chat.type != "private":
-        await message.reply("این دستور فقط در پیوی قابل استفاده است.")
-        return
-    chat_id = str(message.chat.id)
-    user_id = str(message.from_user.id)
-    search_mode = get_search_mode(chat_id, user_id)
-    status = "✅ فعال" if search_mode else "❌ غیرفعال"
-    
-    await message.reply(
-        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {status}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
-        reply_markup=build_panel_keyboard()
-    )
-
-@dp.callback_query(F.data == "settings_menu")
-async def settings_menu_callback(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🔧 **تنظیمات جوجوبلا**\n\nاز دکمه‌های زیر برای تغییر تنظیمات استفاده کنید:",
-        reply_markup=build_settings_keyboard()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "panel_menu")
-async def panel_menu_callback(callback: CallbackQuery):
-    chat_id = str(callback.message.chat.id)
-    user_id = str(callback.from_user.id)
-    search_mode = get_search_mode(chat_id, user_id)
-    status = "✅ فعال" if search_mode else "❌ غیرفعال"
-    
-    await callback.message.edit_text(
-        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {status}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
-        reply_markup=build_panel_keyboard()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_main")
-async def back_main(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
-        reply_markup=build_main_menu()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "change_personality")
-async def change_personality(callback: CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
-        return
-    await callback.message.edit_text("انتخاب شخصیت:", reply_markup=build_personality_keyboard())
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("set_personality_"))
-async def set_personality(callback: CallbackQuery):
-    if callback.message.chat.type != "private":
-        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
-        return
-    key = callback.data.split("_")[-1]
-    prompt = get_personality_prompt(key)
-    chat_id = str(callback.message.chat.id)
-    user_id = str(callback.from_user.id)
-    set_user_personality(chat_id, user_id, prompt)
-    await callback.message.edit_text(
-        f"شخصیت شما با موفقیت به '{key.replace('_', ' ').title()}' تغییر یافت.",
-        reply_markup=build_settings_keyboard()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "create_own")
-async def create_own(callback: CallbackQuery, state: FSMContext):
-    if callback.message.chat.type != "private":
-        await callback.answer("این قابلیت فقط در پیوی در دسترس است.", show_alert=True)
-        return
-    await callback.message.edit_text("Ok give me a prompt to set my behave and my personality e.g: You are Tom holland in spiderman movies and you have to talk and behave like him")
-    await state.set_state(SetPersonality.waiting_for_prompt)
-    await callback.answer()
-
-@dp.message(SetPersonality.waiting_for_prompt)
-async def receive_own_prompt(message: Message, state: FSMContext):
-    chat_id = str(message.chat.id)
-    user_id = str(message.from_user.id)
-    prompt = message.text
-    set_user_personality(chat_id, user_id, prompt)
-    await message.reply(
-        "شخصیت سفارشی شما با موفقیت ثبت شد.",
-        reply_markup=build_settings_keyboard()
-    )
-    await state.clear()
-
-@dp.callback_query(F.data == "developers")
-async def developers(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "توسعه‌دهنده: تیم تاکا\nکانال تلگرام: @TaaKaaOrg\n\nما یک تیم حرفه‌ای هستیم و به ساختن ربات‌های هوشمند علاقه داریم.",
-        reply_markup=build_settings_keyboard()
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "add_to_group")
-async def add_to_group(callback: CallbackQuery):
-    url = "https://t.me/jojobala_bot?startgroup=start"
-    await callback.message.edit_text(
-        "برای افزودن ربات به گروه، روی لینک زیر کلیک کنید:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Add to group", url=url)]])
-    )
-    await callback.answer()
-
-@dp.callback_query(F.data == "ask_about")
-async def ask_about(callback: CallbackQuery):
-    await callback.message.edit_text(
-        build_ask_about_text(),
-        reply_markup=build_settings_keyboard()
+        "- ارسال ایده‌های خودکار در گروه",
+        reply_markup=settings_menu()
     )
     await callback.answer()
 
 @dp.callback_query(F.data == "toggle_search")
-async def toggle_search(callback: CallbackQuery):
+async def toggle_search_callback(callback):
     chat_id = str(callback.message.chat.id)
     user_id = str(callback.from_user.id)
-    toggle_search_mode(chat_id, user_id)
-    status = get_search_mode(chat_id, user_id)
+    is_private = callback.message.chat.type == "private"
+    toggle_search_mode(chat_id, user_id if is_private else None)
+    status = get_search_mode(chat_id, user_id if is_private else None)
     status_text = "فعال" if status else "غیرفعال"
     await callback.answer(f"حالت جستجو {status_text} شد.")
-    
     await callback.message.edit_text(
-        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {'✅ فعال' if status else '❌ غیرفعال'}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
-        reply_markup=build_panel_keyboard()
+        f"📊 پنل مدیریت\nوضعیت جستجو: {'✅ فعال' if status else '❌ غیرفعال'}",
+        reply_markup=panel_menu()
     )
 
 @dp.callback_query(F.data == "generate_image")
-async def generate_image_callback(callback: CallbackQuery, state: FSMContext):
+async def generate_image_callback(callback, state: FSMContext):
     await callback.message.edit_text("🖼️ توضیحات تصویر مورد نظر خود را بنویسید:")
     await state.set_state(AskQuestion.waiting_for_question)
     await callback.answer()
 
 @dp.callback_query(F.data == "generate_video")
-async def generate_video_callback(callback: CallbackQuery, state: FSMContext):
+async def generate_video_callback(callback, state: FSMContext):
     await callback.message.edit_text("🎬 توضیحات ویدیو مورد نظر خود را بنویسید (مثلاً: یک گربه در حال دویدن در پارک):")
     await state.set_state(AskQuestion.waiting_for_video_prompt)
     await callback.answer()
 
+@dp.message(AskQuestion.waiting_for_question)
+async def generate_image_handler(message: Message, state: FSMContext):
+    prompt = message.text
+    await message.reply("🖼️ در حال ساخت تصویر... ممکن است چند ثانیه طول بکشد.")
+    image_url = await generate_image(prompt)
+    if image_url:
+        try:
+            await message.reply_photo(image_url, caption=f"تصویر ساخته شده بر اساس: {prompt}")
+        except Exception:
+            await message.reply("خطا در ارسال تصویر. لطفاً دوباره تلاش کنید.")
+    else:
+        await message.reply("متاسفانه تصویر ساخته نشد. لطفاً پرامپت دقیق‌تری بنویسید و دوباره تلاش کنید.")
+    await state.clear()
+
+@dp.message(AskQuestion.waiting_for_video_prompt)
+async def generate_video_handler(message: Message, state: FSMContext):
+    prompt = message.text
+    await message.reply("🎬 در حال ساخت ویدیو... ممکن است ۲۰-۳۰ ثانیه طول بکشد.")
+    video_url = await generate_video(prompt, duration=5)
+    if video_url:
+        try:
+            await message.reply_video(video_url, caption=f"ویدیو ساخته شده بر اساس: {prompt}")
+        except Exception:
+            await message.reply("خطا در ارسال ویدیو. لطفاً دوباره تلاش کنید.")
+    else:
+        await message.reply("متاسفانه ویدیو ساخته نشد. لطفاً پرامپت دقیق‌تری بنویسید و دوباره تلاش کنید.")
+    await state.clear()
+
 @dp.callback_query(F.data == "role_play")
-async def role_play_callback(callback: CallbackQuery, state: FSMContext):
+async def role_play_callback(callback, state: FSMContext):
     await callback.message.edit_text("اوکی خب انیمرو بگو بریم. یا اگر فیلمه بگو بریم دیگه.")
     await state.set_state(RolePlay.waiting_for_content)
     await callback.answer()
@@ -328,28 +333,7 @@ async def start_role_play(message: Message, state: FSMContext):
     await message.reply(f"اوکی داداش! وارد رول‌پلی {content} شدیم. بیا شروع کنیم! 😎")
     await state.clear()
 
-@dp.message(AskQuestion.waiting_for_question)
-async def generate_image_handler(message: Message, state: FSMContext):
-    prompt = message.text
-    await message.reply("🖼️ در حال ساخت تصویر... ممکن است چند ثانیه طول بکشد.")
-    image_url = await generate_image(prompt)
-    if image_url:
-        await message.reply_photo(image_url, caption=f"تصویر ساخته شده بر اساس: {prompt}")
-    else:
-        await message.reply("متاسفانه خطایی در ساخت تصویر رخ داد. لطفاً دوباره تلاش کنید.")
-    await state.clear()
-
-@dp.message(AskQuestion.waiting_for_video_prompt)
-async def generate_video_handler(message: Message, state: FSMContext):
-    prompt = message.text
-    await message.reply("🎬 در حال ساخت ویدیو... ممکن است چند ثانیه طول بکشد.")
-    video_url = await generate_video(prompt, duration=5)
-    if video_url:
-        await message.reply_video(video_url, caption=f"ویدیو ساخته شده بر اساس: {prompt}")
-    else:
-        await message.reply("متاسفانه خطایی در ساخت ویدیو رخ داد. لطفاً دوباره تلاش کنید.")
-    await state.clear()
-
+# ====== Photo Handler ======
 @dp.message(F.photo)
 async def handle_photo(message: Message):
     chat_id = str(message.chat.id)
@@ -360,7 +344,7 @@ async def handle_photo(message: Message):
         if message.entities:
             for entity in message.entities:
                 if entity.type == "mention":
-                    if message.text[entity.offset:entity.offset+entity.length] == f"@{bot.username}":
+                    if message.text[entity.offset:entity.offset+entity.length] == f"@{BOT_USERNAME}":
                         has_mention = True
                         break
         has_name = "جوجوبلا" in (message.text or "")
@@ -376,10 +360,11 @@ async def handle_photo(message: Message):
     data = await bot.download_file(file.file_path)
     image_data = data.read()
     
-    response = await analyze_image_with_groq(image_data, message.text)
+    response = await analyze_image(image_data, message.text)
     save_history(chat_id, message.text, response)
     await message.reply(response)
 
+# ====== Text Handler ======
 @dp.message(F.text)
 async def handle_text(message: Message):
     chat_id = str(message.chat.id)
@@ -392,16 +377,18 @@ async def handle_text(message: Message):
         if message.entities:
             for entity in message.entities:
                 if entity.type == "mention":
-                    if text[entity.offset:entity.offset+entity.length] == f"@{bot.username}":
+                    if text[entity.offset:entity.offset+entity.length] == f"@{BOT_USERNAME}":
                         has_mention = True
                         break
         has_name = "جوجوبلا" in text
         if not has_mention and not has_name:
             return
     
+    # Detect mood
     mood = await detect_mood(text)
     save_mood(chat_id, user_id, mood)
-    await apply_reaction(message, mood)
+    # Apply reaction based on text content and mood
+    await apply_reaction(message, text, mood)
     
     if text.strip() == "جوجوبلا" and not text.replace("جوجوبلا", "").strip():
         await message.reply("هی سلام چطوری جانم کاری داشتی؟")
@@ -436,25 +423,22 @@ async def handle_text(message: Message):
     personality = get_personality(chat_id, user_id if is_private else None)
     search_mode = get_search_mode(chat_id, user_id if is_private else None)
     
-    search_results = None
+    search_result = None
     if search_mode and is_complex_question(text):
-        thinking_msg = await message.reply("🔍 درحال سرچ کردن... یکم زبون رو جیگر بگیر")
-        search_results = await search_web(text)
+        thinking_msg = await message.reply("🔍")
+        await asyncio.sleep(1)
         await thinking_msg.delete()
+        search_result = await search_web(text)
     
-    response = await call_groq_with_context(chat_id, user_id, text, is_private, search_results)
+    response = await call_groq_with_context(chat_id, user_id, text, is_private, search_result)
     save_history(chat_id, text, response)
     
     if "سازنده" in text or "ساخته" in text or "توسعه" in text:
         response = response.replace("تیم تاکا", "تیم تاکا (@TaakaaOrg)")
     
-    if len(response) > 4096:
-        parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
-        for part in parts:
-            await message.reply(part)
-    else:
-        await handle_message_with_thinking(message, response, personality)
+    await show_thinking_and_reply(message, response, personality)
 
+# ====== Auto Ideas ======
 async def auto_send_ideas():
     while True:
         await asyncio.sleep(random.randint(1800, 3600))
