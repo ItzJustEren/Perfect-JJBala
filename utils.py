@@ -1,3 +1,7 @@
+# ============================================
+# فایل 4: utils.py
+# ============================================
+
 import asyncio
 import base64
 import random
@@ -10,9 +14,11 @@ import aiohttp
 import os
 import requests
 from PIL import Image
-from goblin import generate  # درست: import از goblin به جای goblin_ai
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+AGNES_API_KEY = os.getenv("AGNES_API_KEY")
+AGNES_API_URL = "https://apihub.agnes-ai.com"
+
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 def is_complex_question(text: str) -> bool:
@@ -34,20 +40,62 @@ async def search_web(query: str) -> str:
     return await google_search(query)
 
 async def generate_image(prompt: str) -> str:
+    url = f"{AGNES_API_URL}/v1/images/generations"
+    headers = {
+        "Authorization": f"Bearer {AGNES_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "agnes-image-2.1-flash",
+        "prompt": prompt,
+        "size": "1024x768"
+    }
     try:
-        # goblin generate به صورت async است و خروجی مسیر فایل یا URL برمی‌گرداند
-        image_path = await generate(prompt, output="output.png")
-        return image_path
-    except Exception as e:
-        # در صورت خطا، از Pollinations به عنوان fallback استفاده می‌کنیم
-        try:
-            encoded_prompt = urllib.parse.quote(prompt)
-            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
-                return url
-        except Exception:
-            pass
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=data, headers=headers) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return result.get("data", [{}])[0].get("url")
+                return None
+    except Exception:
+        return None
+
+async def generate_video(prompt: str, duration: int = 5) -> str:
+    url = f"{AGNES_API_URL}/v1/videos/generations"
+    headers = {
+        "Authorization": f"Bearer {AGNES_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "agnes-video-v2.0",
+        "prompt": prompt,
+        "duration": duration,
+        "size": "1152x768"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=data, headers=headers) as response:
+                if response.status != 200:
+                    return None
+                result = await response.json()
+                task_id = result.get("task_id")
+                if not task_id:
+                    return None
+
+            status_url = f"{url}/{task_id}"
+            for _ in range(30):
+                await asyncio.sleep(1)
+                async with session.get(status_url, headers=headers) as status_response:
+                    if status_response.status != 200:
+                        continue
+                    status_data = await status_response.json()
+                    status = status_data.get("status")
+                    if status == "completed":
+                        return status_data.get("result", {}).get("url")
+                    elif status == "failed":
+                        return None
+            return None
+    except Exception:
         return None
 
 async def analyze_image_with_groq(image_data: bytes, question: str) -> str:
@@ -70,7 +118,7 @@ async def analyze_image_with_groq(image_data: bytes, question: str) -> str:
             max_tokens=500
         )
         return response.choices[0].message.content
-    except Exception as e:
+    except Exception:
         try:
             response = groq_client.chat.completions.create(
                 model="qwen/qwen3.6-27b",
