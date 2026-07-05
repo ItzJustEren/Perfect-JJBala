@@ -1,5 +1,4 @@
 import sqlite3
-import asyncio
 from datetime import datetime
 
 DB_PATH = "jojobala.db"
