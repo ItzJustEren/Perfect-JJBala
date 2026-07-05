@@ -6,115 +6,51 @@ import re
 import urllib.parse
 import os
 from groq import Groq
+from duckduckgo_search import DDGS
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-AGNES_API_KEY = os.getenv("AGNES_API_KEY")
-AGNES_BASE_URL = "https://apihub.agnes-ai.com/v1"
-
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# ====== Agnes AI Helpers ======
-async def agnes_chat(prompt: str, system: str = None) -> str:
-    url = f"{AGNES_BASE_URL}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {AGNES_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
-    
-    data = {
-        "model": "agnes-2.0-flash",
-        "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": 1024
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, headers=headers, timeout=30) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return result["choices"][0]["message"]["content"]
-                return None
-    except Exception:
-        return None
-
+# ====== Image Generation with Pollinations.ai ======
 async def generate_image(prompt: str) -> str:
-    url = f"{AGNES_BASE_URL}/images/generations"
-    headers = {
-        "Authorization": f"Bearer {AGNES_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "agnes-image-2.1-flash",
-        "prompt": prompt,
-        "size": "1024x1024",
-        "num_images": 1
-    }
-    
     try:
+        encoded = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&model=flux"
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, headers=headers, timeout=60) as resp:
+            async with session.head(url, timeout=10) as resp:
                 if resp.status == 200:
-                    result = await resp.json()
-                    return result["data"][0]["url"]
-                return None
+                    return url
+        return None
     except Exception:
         return None
 
+# ====== Video Generation with Pollinations.ai ======
 async def generate_video(prompt: str, duration: int = 5) -> str:
-    url = f"{AGNES_BASE_URL}/videos/generations"
-    headers = {
-        "Authorization": f"Bearer {AGNES_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "agnes-video-v2.0",
-        "prompt": prompt,
-        "duration": duration,
-        "size": "1152x768"
-    }
-    
     try:
+        encoded = urllib.parse.quote(prompt)
+        url = f"https://video.pollinations.ai/prompt/{encoded}?width=1152&height=768&duration={duration}&nologo=true"
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, headers=headers, timeout=120) as resp:
+            async with session.head(url, timeout=10) as resp:
                 if resp.status == 200:
-                    result = await resp.json()
-                    task_id = result.get("task_id")
-                    if not task_id:
-                        return None
-                    
-                    status_url = f"{url}/{task_id}"
-                    for _ in range(30):
-                        await asyncio.sleep(2)
-                        async with session.get(status_url, headers=headers) as status_resp:
-                            if status_resp.status == 200:
-                                status_data = await status_resp.json()
-                                if status_data.get("status") == "completed":
-                                    return status_data.get("result", {}).get("url")
-                                elif status_data.get("status") == "failed":
-                                    return None
-                    return None
-                return None
+                    return url
+        return None
     except Exception:
         return None
 
-async def detect_mood(text: str) -> str:
-    try:
-        response = await agnes_chat(
-            text,
-            system="احساسات کاربر را تشخیص بده. فقط یکی از این کلمات را برگردان: شاد, غمگین, عصبانی, خسته, نگران, خنثی"
-        )
-        if response and response in ["شاد", "غمگین", "عصبانی", "خسته", "نگران", "خنثی"]:
-            return response
-        return "خنثی"
-    except Exception:
-        return "خنثی"
-
+# ====== Search with DuckDuckGo + Google Fallback ======
 async def search_web(query: str) -> str:
+    try:
+        with DDGS() as ddgs:
+            results = []
+            for r in ddgs.text(query, max_results=3):
+                results.append(f"• {r['title']}\n{r['body'][:200]}...\n{r['href']}")
+            if results:
+                return "\n\n".join(results)
+        return await google_search_fallback(query)
+    except Exception:
+        return await google_search_fallback(query)
+
+async def google_search_fallback(query: str) -> str:
     try:
         from googlesearch import search
         results = []
@@ -124,15 +60,28 @@ async def search_web(query: str) -> str:
             return "\n".join(results)
         return "نتیجه‌ای پیدا نشد."
     except Exception:
-        try:
-            response = await agnes_chat(
-                f"لطفاً اطلاعات مفید درباره '{query}' را از دانش خودت بگو.",
-                system="به عنوان یک دستیار جستجو، اطلاعات مفید و مختصر درباره سوال کاربر بده."
-            )
-            return response if response else "خطا در جستجو."
-        except Exception:
-            return "خطا در جستجو."
+        return "خطا در جستجو."
 
+# ====== Mood Detection using Groq (fast) ======
+async def detect_mood(text: str) -> str:
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "احساسات کاربر را تشخیص بده. فقط یکی از این کلمات را برگردان: شاد, غمگین, عصبانی, خسته, نگران, خنثی"},
+                {"role": "user", "content": text[:100]}
+            ],
+            temperature=0.1,
+            max_tokens=10
+        )
+        mood = response.choices[0].message.content.strip()
+        if mood in ["شاد", "غمگین", "عصبانی", "خسته", "نگران", "خنثی"]:
+            return mood
+        return "خنثی"
+    except Exception:
+        return "خنثی"
+
+# ====== Image Analysis ======
 async def analyze_image(image_data: bytes, question: str) -> str:
     try:
         encoded = base64.b64encode(image_data).decode("utf-8")
@@ -153,7 +102,7 @@ async def analyze_image(image_data: bytes, question: str) -> str:
             max_tokens=500
         )
         return response.choices[0].message.content
-    except Exception as e:
+    except Exception:
         try:
             response = groq_client.chat.completions.create(
                 model="llama-3.2-90b-vision-preview",
@@ -170,12 +119,11 @@ async def analyze_image(image_data: bytes, question: str) -> str:
                 max_tokens=500
             )
             return response.choices[0].message.content
-        except Exception as e2:
-            return f"خطا در تحلیل تصویر: {str(e2)}"
+        except Exception as e:
+            return f"خطا در تحلیل تصویر: {str(e)}"
 
-# ====== Enhanced reaction emoji based on text content ======
+# ====== Reaction Functions ======
 def get_reaction_emoji(text: str, mood: str = None) -> str:
-    # First check for specific keywords
     if "سلام" in text or "درود" in text:
         return "👋"
     if "خداحافظ" in text or "بدرود" in text or "می‌رم" in text:
@@ -186,9 +134,12 @@ def get_reaction_emoji(text: str, mood: str = None) -> str:
         return "❤️"
     if "?" in text or "؟" in text:
         return "🤔"
-    if "!" in text or "!" in text:
+    if "!" in text:
         return "😮"
-    # Fallback to mood-based emoji
+    if "خوب" in text or "عالی" in text:
+        return "😊"
+    if "بد" in text or "خراب" in text or "ناراحت" in text:
+        return "😟"
     if mood:
         return get_mood_emoji(mood)
     return "😐"
@@ -206,21 +157,23 @@ def get_mood_emoji(mood: str) -> str:
 
 def get_comfort_message(mood: str) -> str:
     messages = {
-        "غمگین": "ناراحت نباش داداش، همه چی درست میشه. من کنارت هستم 🤗",
-        "عصبانی": "آروم باش داداش، نفس عمیق بکش. بیا با هم حلش کنیم 💪",
-        "خسته": "برو یه استراحت کوتاه بکن، یه چای بخور. بعدش با انرژی بیشتری برمیگردی ☕",
-        "نگران": "نگران نباش داداش، همه چی خوب میشه. بهت قول میدم 🤝"
+        "غمگین": "داداش ناراحت نباش، همه چی درست میشه. من کنارتم 🤗",
+        "عصبانی": "آروم باش داداش. نفس عمیق بکش، همه چی حل میشه 💪",
+        "خسته": "برو یه استراحت بکن، یه چای بخور. بعدش انرژی میگیری ☕",
+        "نگران": "نگران نباش داداش، من اینجام تا کمکت کنم 🤝"
     }
-    return messages.get(mood, "همیشه بهت افتخار میکنم داداش. تو عالی‌ای ❤️")
+    return messages.get(mood, "همیشه بهت افتخار میکنم داداش ❤️")
 
-def get_thinking_emoji(personality: str) -> str:
-    if "شوخ" in personality or "دلقک" in personality:
+def get_thinking_emoji(personality: str = None) -> str:
+    if not personality:
+        return "🧠"
+    if "شوخ" in personality or "جوک" in personality:
         return "🤡"
-    elif "سیگما" in personality or "troller" in personality:
+    elif "سیگما" in personality or "خونسرد" in personality:
         return "😎"
-    elif "مهربان" in personality or "شرمگین" in personality:
+    elif "مهربان" in personality or "خجالتی" in personality:
         return "😊"
-    elif "هوش مصنوعی" in personality or "دستیار" in personality:
+    elif "دستیار" in personality or "حرفه‌ای" in personality:
         return "🤖"
     else:
         return "🧠"
@@ -236,5 +189,5 @@ def get_random_idea() -> str:
     return random.choice(ideas)
 
 def is_complex_question(text: str) -> bool:
-    complex_keywords = ["چرا", "چگونه", "چه زمانی", "چه کسی", "تحلیل", "بررسی", "مقایسه", "تاریخچه", "آمار", "داده", "اطلاعات", "علت", "دلیل"]
-    return any(kw in text for kw in complex_keywords) and len(text.split()) > 5
+    keywords = ["چرا", "چگونه", "چه زمانی", "چه کسی", "تحلیل", "بررسی", "مقایسه", "تاریخچه", "آمار", "داده", "اطلاعات", "علت", "دلیل"]
+    return any(k in text for k in keywords) and len(text.split()) > 5
