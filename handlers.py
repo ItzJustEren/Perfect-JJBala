@@ -1,6 +1,5 @@
 import asyncio
 import random
-import re
 from datetime import datetime
 from aiogram import types, F, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message, ReactionTypeEmoji
@@ -23,14 +22,33 @@ class RolePlay(StatesGroup):
 class AskQuestion(StatesGroup):
     waiting_for_question = State()
 
-def build_main_keyboard():
+def build_main_menu():
+    """منوی اصلی با دو دکمه Settings و Panel"""
+    buttons = [
+        [InlineKeyboardButton(text="⚙️ Settings", callback_data="settings_menu")],
+        [InlineKeyboardButton(text="📊 Panel", callback_data="panel_menu")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_settings_keyboard():
+    """منوی تنظیمات با ۴ دکمه اصلی"""
     buttons = [
         [InlineKeyboardButton(text="Change Personality", callback_data="change_personality")],
         [InlineKeyboardButton(text="Developers", callback_data="developers")],
         [InlineKeyboardButton(text="Add to group", callback_data="add_to_group")],
-        [InlineKeyboardButton(text="Ask about me and my features", callback_data="ask_about")]
+        [InlineKeyboardButton(text="Ask about me and my features", callback_data="ask_about")],
+        [InlineKeyboardButton(text="🔙 Back", callback_data="back_main")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def build_panel_keyboard():
+    """منوی پنل با دکمه‌های مدیریتی"""
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Search Mode: ON/OFF", callback_data="toggle_search"))
+    builder.row(InlineKeyboardButton(text="Generate Image", callback_data="generate_image"))
+    builder.row(InlineKeyboardButton(text="Role Play", callback_data="role_play"))
+    builder.row(InlineKeyboardButton(text="🔙 Back", callback_data="back_main"))
+    return builder.as_markup()
 
 def build_personality_keyboard():
     personalities = [
@@ -42,7 +60,7 @@ def build_personality_keyboard():
     ]
     buttons = [[InlineKeyboardButton(text=name, callback_data=f"set_personality_{key}")] for name, key in personalities]
     buttons.append([InlineKeyboardButton(text="Create your own personality", callback_data="create_own")])
-    buttons.append([InlineKeyboardButton(text="Back", callback_data="back_main")])
+    buttons.append([InlineKeyboardButton(text="🔙 Back", callback_data="settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_personality_prompt(key: str) -> str:
@@ -72,13 +90,6 @@ def build_ask_about_text():
         "- بازی رول‌پلی انیمه\n"
         "- ارسال ایده‌های خودکار در گروه"
     )
-
-def get_chat_type(chat: types.Chat) -> str:
-    if chat.type in ["group", "supergroup"]:
-        return "group"
-    elif chat.type == "private":
-        return "private"
-    return "unknown"
 
 async def call_groq_with_context(chat_id: str, user_id: str, user_text: str, is_private: bool, search_results: str = None) -> str:
     personality = get_personality(chat_id, user_id if is_private else None)
@@ -143,31 +154,61 @@ async def start_command(message: Message):
         return
     await message.reply(
         "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
-        reply_markup=build_main_keyboard()
+        reply_markup=build_main_menu()
+    )
+
+@dp.message(Command("settings"))
+async def settings_command(message: Message):
+    if message.chat.type != "private":
+        await message.reply("این دستور فقط در پیوی قابل استفاده است.")
+        return
+    await message.reply(
+        "🔧 **تنظیمات جوجوبلا**\n\nاز دکمه‌های زیر برای تغییر تنظیمات استفاده کنید:",
+        reply_markup=build_settings_keyboard()
     )
 
 @dp.message(Command("panel"))
 async def panel_command(message: Message):
+    if message.chat.type != "private":
+        await message.reply("این دستور فقط در پیوی قابل استفاده است.")
+        return
     chat_id = str(message.chat.id)
     user_id = str(message.from_user.id)
-    is_private = message.chat.type == "private"
-    search_mode = get_search_mode(chat_id, user_id if is_private else None)
+    search_mode = get_search_mode(chat_id, user_id)
     status = "✅ فعال" if search_mode else "❌ غیرفعال"
     
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=f"Search Mode: {'ON' if search_mode else 'OFF'}", callback_data="toggle_search"))
-    builder.row(InlineKeyboardButton(text="Generate Image", callback_data="generate_image"))
-    builder.row(InlineKeyboardButton(text="Role Play", callback_data="role_play"))
-    builder.row(InlineKeyboardButton(text="Main Menu", callback_data="back_main"))
-    
     await message.reply(
-        f"پنل مدیریت جوجوبلا\n\nوضعیت جستجو: {status}\n\nبرای تغییر تنظیمات از دکمه‌ها استفاده کنید.",
-        reply_markup=builder.as_markup()
+        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {status}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
+        reply_markup=build_panel_keyboard()
     )
+
+@dp.callback_query(F.data == "settings_menu")
+async def settings_menu_callback(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🔧 **تنظیمات جوجوبلا**\n\nاز دکمه‌های زیر برای تغییر تنظیمات استفاده کنید:",
+        reply_markup=build_settings_keyboard()
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "panel_menu")
+async def panel_menu_callback(callback: CallbackQuery):
+    chat_id = str(callback.message.chat.id)
+    user_id = str(callback.from_user.id)
+    search_mode = get_search_mode(chat_id, user_id)
+    status = "✅ فعال" if search_mode else "❌ غیرفعال"
+    
+    await callback.message.edit_text(
+        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {status}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
+        reply_markup=build_panel_keyboard()
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data == "back_main")
 async def back_main(callback: CallbackQuery):
-    await callback.message.edit_text("منوی اصلی:", reply_markup=build_main_keyboard())
+    await callback.message.edit_text(
+        "سلام داداش چطوری من جوجوبلا هستم\nرباتی که توسط تیم تاکا (@TaakaaOrg) توسعه یافتم تا به تو کمک کنم و دستیارت باشم فقط از الان بدون من حمالت نیستم پس یکم مدارا کن🤣(صرفا شوخی کردم 🤣)",
+        reply_markup=build_main_menu()
+    )
     await callback.answer()
 
 @dp.callback_query(F.data == "change_personality")
@@ -188,7 +229,10 @@ async def set_personality(callback: CallbackQuery):
     chat_id = str(callback.message.chat.id)
     user_id = str(callback.from_user.id)
     set_user_personality(chat_id, user_id, prompt)
-    await callback.message.edit_text(f"شخصیت شما با موفقیت به '{key.replace('_', ' ').title()}' تغییر یافت.", reply_markup=build_main_keyboard())
+    await callback.message.edit_text(
+        f"شخصیت شما با موفقیت به '{key.replace('_', ' ').title()}' تغییر یافت.",
+        reply_markup=build_settings_keyboard()
+    )
     await callback.answer()
 
 @dp.callback_query(F.data == "create_own")
@@ -206,14 +250,17 @@ async def receive_own_prompt(message: Message, state: FSMContext):
     user_id = str(message.from_user.id)
     prompt = message.text
     set_user_personality(chat_id, user_id, prompt)
-    await message.reply("شخصیت سفارشی شما با موفقیت ثبت شد.", reply_markup=build_main_keyboard())
+    await message.reply(
+        "شخصیت سفارشی شما با موفقیت ثبت شد.",
+        reply_markup=build_settings_keyboard()
+    )
     await state.clear()
 
 @dp.callback_query(F.data == "developers")
 async def developers(callback: CallbackQuery):
     await callback.message.edit_text(
         "توسعه‌دهنده: تیم تاکا\nکانال تلگرام: @TaaKaaOrg\n\nما یک تیم حرفه‌ای هستیم و به ساختن ربات‌های هوشمند علاقه داریم.",
-        reply_markup=build_main_keyboard()
+        reply_markup=build_settings_keyboard()
     )
     await callback.answer()
 
@@ -228,21 +275,26 @@ async def add_to_group(callback: CallbackQuery):
 
 @dp.callback_query(F.data == "ask_about")
 async def ask_about(callback: CallbackQuery):
-    await callback.message.edit_text(build_ask_about_text(), reply_markup=build_main_keyboard())
+    await callback.message.edit_text(
+        build_ask_about_text(),
+        reply_markup=build_settings_keyboard()
+    )
     await callback.answer()
 
 @dp.callback_query(F.data == "toggle_search")
 async def toggle_search(callback: CallbackQuery):
     chat_id = str(callback.message.chat.id)
     user_id = str(callback.from_user.id)
-    is_private = callback.message.chat.type == "private"
-    toggle_search_mode(chat_id, user_id if is_private else None)
-    status = get_search_mode(chat_id, user_id if is_private else None)
+    toggle_search_mode(chat_id, user_id)
+    status = get_search_mode(chat_id, user_id)
     status_text = "فعال" if status else "غیرفعال"
     await callback.answer(f"حالت جستجو {status_text} شد.")
-    await panel_command(callback.message)
-    await callback.message.delete()
-    await callback.message.answer("پنل بروزرسانی شد.")
+    
+    # بروزرسانی منوی پنل
+    await callback.message.edit_text(
+        f"📊 **پنل مدیریت جوجوبلا**\n\nوضعیت جستجو: {'✅ فعال' if status else '❌ غیرفعال'}\n\nاز دکمه‌های زیر برای مدیریت ربات استفاده کنید:",
+        reply_markup=build_panel_keyboard()
+    )
 
 @dp.callback_query(F.data == "generate_image")
 async def generate_image_callback(callback: CallbackQuery, state: FSMContext):
