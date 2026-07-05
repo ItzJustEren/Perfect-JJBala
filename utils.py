@@ -10,11 +10,10 @@ import aiohttp
 import os
 import requests
 from PIL import Image
-from goblin_ai import GoblinAI
+from goblin import generate  # درست: import از goblin به جای goblin_ai
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY)
-goblin = GoblinAI()
 
 def is_complex_question(text: str) -> bool:
     complex_keywords = ["چرا", "چگونه", "چه زمانی", "چه کسی", "تحلیل", "بررسی", "مقایسه", "تاریخچه", "آمار", "داده", "اطلاعات", "علت", "دلیل"]
@@ -36,11 +35,11 @@ async def search_web(query: str) -> str:
 
 async def generate_image(prompt: str) -> str:
     try:
-        result = goblin.generate_image(prompt)
-        if result and hasattr(result, 'url'):
-            return result.url
-        return None
+        # goblin generate به صورت async است و خروجی مسیر فایل یا URL برمی‌گرداند
+        image_path = await generate(prompt, output="output.png")
+        return image_path
     except Exception as e:
+        # در صورت خطا، از Pollinations به عنوان fallback استفاده می‌کنیم
         try:
             encoded_prompt = urllib.parse.quote(prompt)
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
