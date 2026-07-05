@@ -1,3 +1,7 @@
+# ============================================
+# فایل 6: bot.py
+# ============================================
+
 import asyncio
 import os
 from dotenv import load_dotenv
