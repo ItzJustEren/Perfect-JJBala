@@ -1,11 +1,6 @@
-# ============================================
-# فایل 3: database.py
-# ============================================
-
 import sqlite3
-from datetime import datetime
 
-DB_PATH = "jojobala.db"
+DB_PATH = "pfjjbala.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -83,15 +78,6 @@ def set_user_personality(chat_id: str, user_id: str, personality: str):
     conn.execute(
         "INSERT OR REPLACE INTO user_settings (chat_id, user_id, personality) VALUES (?, ?, ?)",
         (chat_id, user_id, personality)
-    )
-    conn.commit()
-    conn.close()
-
-def set_chat_personality(chat_id: str, personality: str):
-    conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO chat_settings (chat_id, personality) VALUES (?, ?)",
-        (chat_id, personality)
     )
     conn.commit()
     conn.close()
